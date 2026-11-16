@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""ai-excited-01 entry (Python 3.13, standard library only).
+"""Golden Koi — ai-excited-01 entry.
 
-The entry image is entry.png beside this file, and the program copies it
-byte-for-byte to /output/entry.png. Fully deterministic: a plain file copy,
-no network, no randomness, no timestamps, no dependence on anything but
-the file sitting next to this script.
+Copies the entry image (entry.png, next to this script) byte-for-byte to
+/output/entry.png. Python 3.13 standard library only: no network, no
+randomness, no timestamps — the output is a pure function of the input file,
+so repeated runs produce identical bytes.
 
-The copy is atomic (temp file in the output dir + rename) so an interrupted
-run never leaves a half-written entry.png behind, and a missing source file
-fails loudly instead of producing a silent empty output.
+The copy lands in a temporary file inside the output directory and is then
+renamed into place, so an interrupted run can never leave a half-written
+image behind. A missing source aborts loudly instead of yielding an empty
+output, and the finished file is hashed and compared with the source before
+the program exits.
 
 Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
     mkdir -p out && MAKEFUN_OUTPUT_DIR=out python3 main.py
@@ -20,30 +22,35 @@ import shutil
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-OUT_DIR = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output")
-SOURCE = HERE / "entry.png"
+BASE = Path(__file__).resolve().parent
+IMAGE = BASE / "entry.png"
+DEST = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output")
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def digest_of(path: Path) -> str:
+    """SHA-256 hex digest of a file, streamed in 1 MiB chunks."""
+    hasher = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            block = stream.read(1 << 20)
+            if not block:
+                break
+            hasher.update(block)
+    return hasher.hexdigest()
 
 
 def main() -> None:
-    if not SOURCE.is_file():
-        print(f"error: entry image missing: {SOURCE}", file=sys.stderr)
+    if not IMAGE.is_file():
+        print(f"error: source image not found: {IMAGE}", file=sys.stderr)
         raise SystemExit(1)
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    target = OUT_DIR / "entry.png"
-    tmp = OUT_DIR / ".entry.png.tmp"
-    shutil.copyfile(SOURCE, tmp)
-    os.replace(tmp, target)
-    if _sha256(target) != _sha256(SOURCE):
-        print("error: copied entry.png does not match the source", file=sys.stderr)
+    source_hash = digest_of(IMAGE)
+    DEST.mkdir(parents=True, exist_ok=True)
+    out_path = DEST / "entry.png"
+    staging = DEST / ".entry.png.tmp"
+    shutil.copyfile(IMAGE, staging)
+    os.replace(staging, out_path)
+    if digest_of(out_path) != source_hash:
+        print("error: output image does not match the source", file=sys.stderr)
         raise SystemExit(1)
 
 
